@@ -1,0 +1,12 @@
+ANTIBIOTIC,Appendicitis,Cellulitis,Gastroenteritis,Incomplete Abortion,Neonatal Sepsis,Osteomyelitis,Pneumonia,Sepsis,Surgical,UTI,Total
+Amoxicillin-clavulanate,1,6,1,1,0,0,32,15,18,3,77
+Benzylpenicillin,0,0,0,0,64,0,6,28,2,0,100
+Cefazolin,1,3,0,1,0,2,1,0,67,0,75
+Ceftriaxone,3,15,1,5,0,2,0,10,71,0,107
+Cefuroxime,0,3,1,1,0,0,2,1,32,0,40
+Clindamycin,0,2,0,0,0,4,0,2,4,0,12
+Doxycycline,0,0,1,38,1,0,0,0,16,0,56
+Gentamicin,0,1,0,0,64,0,6,30,18,0,119
+Metronidazole,4,30,4,36,1,3,1,12,80,1,172
+flucloxacillin,0,45,0,0,0,0,2,6,20,0,73
+Total,9,105,8,82,130,11,50,104,328,4,831
