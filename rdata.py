@@ -6,7 +6,8 @@ import streamlit as st
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Multi-Facility Antibiotic Stewardship Dashboard", layout="wide"
+    page_title="Multi-Facility Antibiotic Stewardship Dashboard",
+    layout="wide"
 )
 
 # --- CUSTOM CSS FOR METRIC TILES ---
@@ -54,7 +55,7 @@ def process_and_aggregate_dataframe(df_raw):
     required_cols = ["FILE NUMBER"]
     for col in required_cols:
         if col not in df_raw.columns:
-            st.error(f"Missing required column: `{col}` in uploaded file.")
+            st.error(f"Missing required column: `{col}` in dataset.")
             return None
 
     agg_dict = {
@@ -124,8 +125,21 @@ def process_and_aggregate_dataframe(df_raw):
 
 
 @st.cache_data
+def get_dataset_path():
+    """Locates the dataset automatically within the GitHub repository root or subfolders."""
+    filename = "ANTIBIOTICS_WITH_DIAGNOSIS.csv"
+    if os.path.exists(filename):
+        return filename
+
+    for root, dirs, files in os.walk("."):
+        if filename in files:
+            return os.path.join(root, filename)
+    return filename
+
+
+@st.cache_data
 def load_default_data(file_path):
-    """Loads default system data from local disk."""
+    """Loads dataset dynamically from GitHub path."""
     if not os.path.exists(file_path):
         return None, None
     df_raw = pd.read_csv(file_path)
@@ -133,8 +147,8 @@ def load_default_data(file_path):
     return df_raw, df_patients
 
 
-# Default local dataset setup
-DATA_PATH = r"C:\Users\LUBINGU\PycharmProjects\LWANSASE\cdata\ANTIBIOTICS_WITH_DIAGNOSIS.csv"
+# Dynamic GitHub Dataset path resolution
+DATA_PATH = get_dataset_path()
 default_df_raw, default_df_patients = load_default_data(DATA_PATH)
 
 # --- HEADER SECTION ---
@@ -143,6 +157,12 @@ st.markdown(
     "Data consolidated by **`FILE NUMBER`** (1 Patient = 1 Record with multiple"
     " cultures and antibiotics aggregated)."
 )
+
+if default_df_raw is None:
+    st.error(
+        f"❌ Could not automatically find `{DATA_PATH}` in the GitHub repository. "
+        "Ensure `ANTIBIOTICS_WITH_DIAGNOSIS.csv` is committed and pushed to GitHub."
+    )
 
 # --- TOP FACILITY TABS ---
 tab_nakuru, tab_uth, tab_levy, tab_aar = st.tabs([
@@ -211,64 +231,40 @@ def render_facility_dashboard(
         with b3:
             st.success("**📌 Phase:** ENDLINE 2026")
 
-        st.markdown("### 📁 Data Source")
-        uploaded_file = st.file_uploader(
-            f"Upload custom CSV or Excel dataset for **{full_name}**",
-            type=["csv", "xlsx", "xls"],
-            key=f"uploader_{facility_code}",
-        )
-
         pts = pd.DataFrame()
         raw_fac_df = pd.DataFrame()
 
-        if uploaded_file is not None:
-            try:
-                if uploaded_file.name.endswith(".csv"):
-                    raw_fac_df = pd.read_csv(uploaded_file)
-                else:
-                    raw_fac_df = pd.read_excel(uploaded_file)
+        if (
+            default_df_patients is not None
+            and "FACILITY" in default_df_patients.columns
+        ):
+            pts = default_df_patients[
+                default_df_patients["FACILITY"]
+                .astype(str)
+                .str.contains(facility_code, case=False)
+                | default_df_patients["FACILITY"]
+                .astype(str)
+                .str.contains(facility_match, case=False)
+            ].copy()
 
-                pts = process_and_aggregate_dataframe(raw_fac_df)
-                st.success(
-                    f"Successfully loaded uploaded dataset for"
-                    f" **{full_name}** ({len(pts):,} patient records)."
-                )
-            except Exception as e:
-                st.error(f"Error reading uploaded file: {e}")
-                return
-        else:
-            if (
-                default_df_patients is not None
-                and "FACILITY" in default_df_patients.columns
-            ):
-                pts = default_df_patients[
-                    default_df_patients["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_code, case=False)
-                    | default_df_patients["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_match, case=False)
-                ].copy()
-
-            if (
-                default_df_raw is not None
-                and "FACILITY" in default_df_raw.columns
-            ):
-                raw_fac_df = default_df_raw[
-                    default_df_raw["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_code, case=False)
-                    | default_df_raw["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_match, case=False)
-                ].copy()
+        if (
+            default_df_raw is not None
+            and "FACILITY" in default_df_raw.columns
+        ):
+            raw_fac_df = default_df_raw[
+                default_df_raw["FACILITY"]
+                .astype(str)
+                .str.contains(facility_code, case=False)
+                | default_df_raw["FACILITY"]
+                .astype(str)
+                .str.contains(facility_match, case=False)
+            ].copy()
 
         total_patients = len(pts)
 
         if total_patients == 0:
             st.warning(
-                f"No patient records available for **{full_name}**. Please"
-                " upload a dataset above."
+                f"No patient records found in dataset for **{full_name}**."
             )
             return
 
