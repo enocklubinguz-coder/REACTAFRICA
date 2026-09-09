@@ -54,14 +54,14 @@ def process_and_aggregate_dataframe(df_raw):
     required_cols = ["FILE NUMBER"]
     for col in required_cols:
         if col not in df_raw.columns:
-            st.error(f"Missing required column: `{col}` in dataset.")
+            st.error(f"Missing required column: `{col}` in uploaded file.")
             return None
 
     agg_dict = {
         "FACILITY": (
             "first"
             if "FACILITY" in df_raw.columns
-            else lambda x: "Facility Data"
+            else lambda x: "Uploaded Facility"
         ),
         "PATIENT GENDER": (
             "first" if "PATIENT GENDER" in df_raw.columns else lambda x: "Unknown"
@@ -125,7 +125,7 @@ def process_and_aggregate_dataframe(df_raw):
 
 @st.cache_data
 def load_default_data(file_path):
-    """Loads default system data from local Git repository disk path."""
+    """Loads default system data from local disk."""
     if not os.path.exists(file_path):
         return None, None
     df_raw = pd.read_csv(file_path)
@@ -133,8 +133,8 @@ def load_default_data(file_path):
     return df_raw, df_patients
 
 
-# Local Git dataset path (relative path recommended for version control)
-DATA_PATH = os.path.join("cdata", "ANTIBIOTICS_WITH_DIAGNOSIS.csv")
+# Default local dataset setup
+DATA_PATH = r"C:\Users\LUBINGU\PycharmProjects\LWANSASE\cdata\ANTIBIOTICS_WITH_DIAGNOSIS.csv"
 default_df_raw, default_df_patients = load_default_data(DATA_PATH)
 
 # --- HEADER SECTION ---
@@ -211,34 +211,64 @@ def render_facility_dashboard(
         with b3:
             st.success("**📌 Phase:** ENDLINE 2026")
 
+        st.markdown("### 📁 Data Source")
+        uploaded_file = st.file_uploader(
+            f"Upload custom CSV or Excel dataset for **{full_name}**",
+            type=["csv", "xlsx", "xls"],
+            key=f"uploader_{facility_code}",
+        )
+
         pts = pd.DataFrame()
         raw_fac_df = pd.DataFrame()
 
-        if default_df_patients is not None and "FACILITY" in default_df_patients.columns:
-            pts = default_df_patients[
-                default_df_patients["FACILITY"]
-                .astype(str)
-                .str.contains(facility_code, case=False)
-                | default_df_patients["FACILITY"]
-                .astype(str)
-                .str.contains(facility_match, case=False)
-            ].copy()
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith(".csv"):
+                    raw_fac_df = pd.read_csv(uploaded_file)
+                else:
+                    raw_fac_df = pd.read_excel(uploaded_file)
 
-        if default_df_raw is not None and "FACILITY" in default_df_raw.columns:
-            raw_fac_df = default_df_raw[
-                default_df_raw["FACILITY"]
-                .astype(str)
-                .str.contains(facility_code, case=False)
-                | default_df_raw["FACILITY"]
-                .astype(str)
-                .str.contains(facility_match, case=False)
-            ].copy()
+                pts = process_and_aggregate_dataframe(raw_fac_df)
+                st.success(
+                    f"Successfully loaded uploaded dataset for"
+                    f" **{full_name}** ({len(pts):,} patient records)."
+                )
+            except Exception as e:
+                st.error(f"Error reading uploaded file: {e}")
+                return
+        else:
+            if (
+                default_df_patients is not None
+                and "FACILITY" in default_df_patients.columns
+            ):
+                pts = default_df_patients[
+                    default_df_patients["FACILITY"]
+                    .astype(str)
+                    .str.contains(facility_code, case=False)
+                    | default_df_patients["FACILITY"]
+                    .astype(str)
+                    .str.contains(facility_match, case=False)
+                ].copy()
+
+            if (
+                default_df_raw is not None
+                and "FACILITY" in default_df_raw.columns
+            ):
+                raw_fac_df = default_df_raw[
+                    default_df_raw["FACILITY"]
+                    .astype(str)
+                    .str.contains(facility_code, case=False)
+                    | default_df_raw["FACILITY"]
+                    .astype(str)
+                    .str.contains(facility_match, case=False)
+                ].copy()
 
         total_patients = len(pts)
 
         if total_patients == 0:
             st.warning(
-                f"No patient records found for **{full_name}** in dataset file `{DATA_PATH}`."
+                f"No patient records available for **{full_name}**. Please"
+                " upload a dataset above."
             )
             return
 
@@ -320,6 +350,7 @@ def render_facility_dashboard(
 
         r3_c1, r3_c2, r3_c3 = st.columns(3)
 
+        # 1. Most Common Antibiotic
         with r3_c1:
             if all_abx:
                 top_abx_series = pd.Series(all_abx).value_counts()
@@ -334,6 +365,7 @@ def render_facility_dashboard(
             else:
                 render_tile("Most Common Antibiotic", "N/A", "No Data Available")
 
+        # 2. Most Common Specimen
         with r3_c2:
             if all_cultures:
                 top_spec_series = pd.Series(all_cultures).value_counts()
@@ -348,6 +380,7 @@ def render_facility_dashboard(
             else:
                 render_tile("Most Common Specimen", "N/A", "No Data Available")
 
+        # 3. Most Common Diagnosis
         with r3_c3:
             diag_series = pts["DIAGNOSIS"].dropna()
             diag_series = diag_series[diag_series.astype(str).str.strip() != "N/A"]
@@ -438,64 +471,6 @@ def render_facility_dashboard(
                     st.warning("Column **`TREATMENT TYPE`** is present but contains no data.")
             else:
                 st.error("Missing required column **`TREATMENT TYPE`** in the dataset.")
-
-        st.markdown("---")
-
-        # --- SYNDROME VS. ANTIBIOTICS MATRIX TABLE ---
-        st.header("📋 Antibiotic Usage Matrix across Top 5 Syndromes / Diagnoses")
-        st.markdown(
-            "Frequency of top prescribed antibiotics distributed across the **Top 5 Syndromes (Diagnoses)**."
-        )
-
-        valid_pts = pts.dropna(subset=["DIAGNOSIS"]).copy()
-        valid_pts = valid_pts[
-            valid_pts["DIAGNOSIS"].astype(str).str.strip().str.upper() != "N/A"
-        ]
-
-        if not valid_pts.empty and all_abx:
-            top5_syndromes = (
-                valid_pts["DIAGNOSIS"].value_counts().head(5).index.tolist()
-            )
-            top10_abx_list = (
-                pd.Series(all_abx).value_counts().head(10).index.tolist()
-            )
-
-            # Explode ANTIBIOTIC safely
-            exploded_pts = valid_pts[["FILE NUMBER", "DIAGNOSIS", "ANTIBIOTIC"]].explode("ANTIBIOTIC")
-            exploded_pts["ANTIBIOTIC"] = exploded_pts["ANTIBIOTIC"].astype(str).str.strip()
-
-            # Filter records for top entities
-            exploded_pts = exploded_pts[
-                (exploded_pts["DIAGNOSIS"].isin(top5_syndromes)) &
-                (exploded_pts["ANTIBIOTIC"].isin(top10_abx_list)) &
-                (exploded_pts["ANTIBIOTIC"] != "")
-            ]
-
-            if not exploded_pts.empty:
-                matrix_df = (
-                    exploded_pts.groupby(["ANTIBIOTIC", "DIAGNOSIS"])
-                    .size()
-                    .unstack(fill_value=0)
-                )
-
-                matrix_df = matrix_df.reindex(
-                    index=top10_abx_list,
-                    columns=top5_syndromes,
-                    fill_value=0
-                ).dropna(how="all")
-
-                matrix_df["Total Prescriptions"] = matrix_df.sum(axis=1)
-
-                st.dataframe(
-                    matrix_df.style.background_gradient(
-                        cmap="YlGnBu", subset=matrix_df.columns[:-1]
-                    ).format("{:,}"),
-                    use_container_width=True,
-                )
-            else:
-                st.info("No matching antibiotic prescriptions found for the top 5 diagnoses.")
-        else:
-            st.info("Insufficient diagnosis or antibiotic data available to generate matrix.")
 
         st.markdown("---")
 
@@ -647,12 +622,58 @@ def render_facility_dashboard(
                     )
                 else:
                     st.warning(
-                        "No valid numeric duration values found in column **`DURATION`**."
+                        "No valid numeric duration values found in column"
+                        " **`DURATION`**."
                     )
             else:
                 st.error("Missing required column **`DURATION`** in dataset.")
         else:
             st.info("No raw dataset available to compute treatment durations.")
+
+        # --- METRONIDAZOLE BY DIAGNOSIS CHART ---
+        st.markdown("---")
+        st.subheader("💊 Metronidazole Usage Across Top 5 Diagnoses")
+
+        metro_pts = pts[
+            pts["ANTIBIOTIC"].apply(
+                lambda abx_list: any(
+                    "metronidaz" in str(a).lower()
+                    for a in abx_list
+                    if isinstance(abx_list, list)
+                )
+            )
+        ]
+
+        if not metro_pts.empty and not metro_pts["DIAGNOSIS"].dropna().empty:
+            metro_diag = (
+                metro_pts["DIAGNOSIS"].value_counts().head(5).reset_index()
+            )
+            metro_diag.columns = ["Diagnosis", "Patients"]
+            fig_metro = px.bar(
+                metro_diag,
+                x="Diagnosis",
+                y="Patients",
+                title=(
+                    "Metronidazole Prescriptions across Top 5 Diagnoses"
+                    " (Patient Base)"
+                ),
+                text="Patients",
+                color="Patients",
+                color_continuous_scale="Viridis",
+            )
+            fig_metro.update_traces(textangle=0, textposition="outside")
+            fig_metro.update_xaxes(tickangle=0)
+            fig_metro.update_yaxes(tickangle=0)
+            st.plotly_chart(
+                fig_metro,
+                use_container_width=True,
+                key=f"metro_diag_{facility_code}",
+            )
+        else:
+            st.info(
+                f"No Metronidazole prescriptions found in records for"
+                f" **{full_name}**."
+            )
 
         st.markdown("---")
 
