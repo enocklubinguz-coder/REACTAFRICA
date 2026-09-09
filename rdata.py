@@ -54,14 +54,14 @@ def process_and_aggregate_dataframe(df_raw):
     required_cols = ["FILE NUMBER"]
     for col in required_cols:
         if col not in df_raw.columns:
-            st.error(f"Missing required column: `{col}` in uploaded file.")
+            st.error(f"Missing required column: `{col}` in dataset.")
             return None
 
     agg_dict = {
         "FACILITY": (
             "first"
             if "FACILITY" in df_raw.columns
-            else lambda x: "Uploaded Facility"
+            else lambda x: "Facility Data"
         ),
         "PATIENT GENDER": (
             "first" if "PATIENT GENDER" in df_raw.columns else lambda x: "Unknown"
@@ -125,7 +125,7 @@ def process_and_aggregate_dataframe(df_raw):
 
 @st.cache_data
 def load_default_data(file_path):
-    """Loads default system data from local disk."""
+    """Loads default system data from local Git repository disk path."""
     if not os.path.exists(file_path):
         return None, None
     df_raw = pd.read_csv(file_path)
@@ -133,8 +133,8 @@ def load_default_data(file_path):
     return df_raw, df_patients
 
 
-# Default local dataset setup
-DATA_PATH = r"C:\Users\LUBINGU\PycharmProjects\LWANSASE\cdata\ANTIBIOTICS_WITH_DIAGNOSIS.csv"
+# Local Git dataset path (relative path recommended for version control)
+DATA_PATH = os.path.join("cdata", "ANTIBIOTICS_WITH_DIAGNOSIS.csv")
 default_df_raw, default_df_patients = load_default_data(DATA_PATH)
 
 # --- HEADER SECTION ---
@@ -211,64 +211,34 @@ def render_facility_dashboard(
         with b3:
             st.success("**📌 Phase:** ENDLINE 2026")
 
-        st.markdown("### 📁 Data Source")
-        uploaded_file = st.file_uploader(
-            f"Upload custom CSV or Excel dataset for **{full_name}**",
-            type=["csv", "xlsx", "xls"],
-            key=f"uploader_{facility_code}",
-        )
-
         pts = pd.DataFrame()
         raw_fac_df = pd.DataFrame()
 
-        if uploaded_file is not None:
-            try:
-                if uploaded_file.name.endswith(".csv"):
-                    raw_fac_df = pd.read_csv(uploaded_file)
-                else:
-                    raw_fac_df = pd.read_excel(uploaded_file)
+        if default_df_patients is not None and "FACILITY" in default_df_patients.columns:
+            pts = default_df_patients[
+                default_df_patients["FACILITY"]
+                .astype(str)
+                .str.contains(facility_code, case=False)
+                | default_df_patients["FACILITY"]
+                .astype(str)
+                .str.contains(facility_match, case=False)
+            ].copy()
 
-                pts = process_and_aggregate_dataframe(raw_fac_df)
-                st.success(
-                    f"Successfully loaded uploaded dataset for"
-                    f" **{full_name}** ({len(pts):,} patient records)."
-                )
-            except Exception as e:
-                st.error(f"Error reading uploaded file: {e}")
-                return
-        else:
-            if (
-                default_df_patients is not None
-                and "FACILITY" in default_df_patients.columns
-            ):
-                pts = default_df_patients[
-                    default_df_patients["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_code, case=False)
-                    | default_df_patients["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_match, case=False)
-                ].copy()
-
-            if (
-                default_df_raw is not None
-                and "FACILITY" in default_df_raw.columns
-            ):
-                raw_fac_df = default_df_raw[
-                    default_df_raw["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_code, case=False)
-                    | default_df_raw["FACILITY"]
-                    .astype(str)
-                    .str.contains(facility_match, case=False)
-                ].copy()
+        if default_df_raw is not None and "FACILITY" in default_df_raw.columns:
+            raw_fac_df = default_df_raw[
+                default_df_raw["FACILITY"]
+                .astype(str)
+                .str.contains(facility_code, case=False)
+                | default_df_raw["FACILITY"]
+                .astype(str)
+                .str.contains(facility_match, case=False)
+            ].copy()
 
         total_patients = len(pts)
 
         if total_patients == 0:
             st.warning(
-                f"No patient records available for **{full_name}**. Please"
-                " upload a dataset above."
+                f"No patient records found for **{full_name}** in dataset file `{DATA_PATH}`."
             )
             return
 
@@ -502,21 +472,18 @@ def render_facility_dashboard(
             ]
 
             if not exploded_pts.empty:
-                # Groupby + Unstack avoids the pd.crosstab reindex duplicate label bug
                 matrix_df = (
                     exploded_pts.groupby(["ANTIBIOTIC", "DIAGNOSIS"])
                     .size()
                     .unstack(fill_value=0)
                 )
 
-                # Order columns and rows properly
                 matrix_df = matrix_df.reindex(
                     index=top10_abx_list,
                     columns=top5_syndromes,
                     fill_value=0
                 ).dropna(how="all")
 
-                # Add row totals
                 matrix_df["Total Prescriptions"] = matrix_df.sum(axis=1)
 
                 st.dataframe(
@@ -680,8 +647,7 @@ def render_facility_dashboard(
                     )
                 else:
                     st.warning(
-                        "No valid numeric duration values found in column"
-                        " **`DURATION`**."
+                        "No valid numeric duration values found in column **`DURATION`**."
                     )
             else:
                 st.error("Missing required column **`DURATION`** in dataset.")
